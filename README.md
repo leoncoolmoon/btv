@@ -4,7 +4,7 @@ This webpage allows you to convert an image into a zigzag line representation. I
 
 ## Features
 
-- **Image Upload:** You can upload a .jpg or .jpeg image file. The image is then rendered on a canvas.
+- **Image Upload:** You can upload an image file. The image is then rendered on a canvas.
 
 - **Parameter Adjustment:** The conversion process can be customized using various parameters such as:
     - Color Diff (64-200)
