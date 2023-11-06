@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Picture to zigzag line</title>
+<style>
+div {
+    flex-grow: 1;
+    margin: 10px;
+	display: flex;
+    flex-direction: column;
+}
+body {
+    display: flex;
+	margin:0;
+}
+p {
+ margin-bottom: 0px;
+}
+textarea {
+    flex-grow: 1;
+}
+</style>
+</head>
+
+<body>
+<p style="writing-mode: vertical-rl;box-shadow: 5px 0px 5px rgba(0, 0, 0, 0.5);padding-top: 8px;">Picture to zigzag line</p>
+<div>
+<p>Upload Image</p>
+<input type="file" id="imageUpload" accept=".jpg,.jpeg" />
+<p>Original</p>
+<canvas id="canvasJpg"></canvas>
+
+<p>Color Diff (64-200): <span id="colorDiffValue">120</span></p>
+<input type="range" min="64" max="200" value="120" class="slider" id="colorDiff">
+
+<p>Epsilon for DouglasPeucker (0.2-2): <span id="epsilonValue">0.75</span></p>
+<input type="range" min="0.2" max="2" value="0.75" step="0.01" class="slider" id="epsilon">
+
+<p>Max Dist (1-30): <span id="maxDistValue">4</span></p>
+<input type="range" min="1" max="30" value="4" class="slider" id="maxDist">
+
+<p>Num Colors (2-255): <span id="numColorsValue">16</span></p>
+<input type="range" min="2" max="255" value="16" class="slider" id="numColors">
+
+<p>Sigma for Gaussian Smooth (0.5-5): <span id="sigmaValue">1</span></p>
+<input type="range" min="0.5" max="5" value="1" class="slider" id="sigma">
+
+<p>Convert to vector</p> 
+<button id="convertButton">Convert</button>
+</div>
+<div>
+<p>Result:</p>
+<p>Reduce Colour</p>
+  <canvas id="canvasDec"></canvas>
+<p>Edge</p>
+  <canvas id="canvasEdge"></canvas>
+<p>SVG-PNG</p>
+  <canvas id="canvasVic"></canvas>
+
+  <!-- <canvas id="canvasSvg"></canvas> -->
+<p>SVG</p>
+  <img id = "imgSvg">
+</div>
+<div>
+<p>Gcode</p>
+  <textarea id="gCodeV" name="gCodeV" rows="4" cols="50"></textarea>
+</div>
+  <script>
+  
+var colorDiff = 120;
+var colorDiffSlider = document.getElementById("colorDiff");
+colorDiffSlider.oninput = function() {
+  document.getElementById("colorDiffValue").innerHTML = this.value;
+  colorDiff = parseFloat(this.value);
+}
+
+var epsilon = 0.75;
+var epsilonSlider = document.getElementById("epsilon");
+epsilonSlider.oninput = function() {
+  document.getElementById("epsilonValue").innerHTML = this.value;
+  epsilon = parseFloat(this.value);
+}
+
+let maxDist = 4;
+var maxDistSlider = document.getElementById("maxDist");
+maxDistSlider.oninput = function() {
+  document.getElementById("maxDistValue").innerHTML = this.value;
+  maxDist = parseFloat(this.value);
+}
+
+var numColors = 16;
+var numColorsSlider = document.getElementById("numColors");
+numColorsSlider.oninput = function() {
+  document.getElementById("numColorsValue").innerHTML = this.value;
+  numColors = parseFloat(this.value);
+}
+
+var sigma = 1;
+var sigmaSlider = document.getElementById("sigma");
+sigmaSlider.oninput = function() {
+  document.getElementById("sigmaValue").innerHTML = this.value;
+  sigma = parseFloat(this.value);
+}
+
+  document.getElementById('imageUpload').addEventListener('change', function(e) {
+  var canvas = document.getElementById('canvasJpg');
+  var ctx = canvas.getContext('2d');
+  var reader = new FileReader();
+  var visited;
+
+  reader.onload = function(event) {
+    var img = new Image();
+    img.onload = function() {
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0, img.width, img.height);
+}
+    img.src = event.target.result;
+  }
+  reader.readAsDataURL(e.target.files[0]);
+});
+
+document.getElementById("convertButton").onclick = function() {
+
+  console.log(colorDiff, epsilon, maxDist, numColors);
+ var canvas = document.getElementById('canvasJpg');
+  var ctx = canvas.getContext('2d');
+let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+let data = imageData.data;
+let arr = new Array(canvas.width);
+for (let x = 0; x < canvas.width; x++) {
+  arr[x] = new Array(canvas.height);
+  for (let y = 0; y < canvas.height; y++) {
+    let index = (y * canvas.width + x) * 4;
+	//本段直接拷贝颜色
+    /*arr[x][y] = [data[index],
+				 data[index + 1], 
+				 data[index + 2], 
+				 data[index + 3]]; // RGBA
+	*/
+	//本段直接拷贝颜色
+	//本段减少颜色
+	arr[x][y] = [Math.floor(data[index] / 256 * numColors) * (256 / numColors),
+				 Math.floor(data[index + 1] / 256 * numColors) * (256 / numColors), 
+				 Math.floor(data[index + 2] / 256 * numColors) * (256 / numColors), 
+				 ]; // RGB ->reduce colour number
+	//本段减少颜色
+  }
+}
+var cvsd = document.getElementById('canvasDec');
+      cvsd.width = canvas.width;
+      cvsd.height = canvas.height;
+var cvse = document.getElementById('canvasEdge');
+      cvse.width = canvas.width;
+      cvse.height = canvas.height;
+var cvsf = document.getElementById('canvasVic');
+      cvsf.width = canvas.width;
+      cvsf.height = canvas.height;
+/* var cvsg = document.getElementById('canvasSvg');
+      cvsg.width = canvas.width;
+      cvsg.height = canvas.height;   
+*/
+//核心	  
+drawArr(arr,cvsd);
+//寻找边界
+var edges = sobelFilter(arr);
+drawEdges(edges,cvse);
+//分组分割边界
+var groups = groupEdges(edges,maxDist);
+//准备Gcode
+document.getElementById("gCodeV").value =  'G90 G21\n'; // 使用绝对坐标 // 使用毫米为单位
+//准备svg
+let svgElement = document.createElementNS("http://www.w3.org/2000/svg", 'svg');
+//例遍子边界
+groups.forEach((group, index) => {
+//douglasPeucker简化边界
+    let simplifiedGroup = douglasPeucker(group,epsilon);
+//曲线拟合	
+	let spline = splineInterpolation(simplifiedGroup);
+//高斯平滑曲线
+	let sspline;
+	if(Array.isArray(spline)){
+	sspline = gaussianSmoothND(spline,sigma,5);
+	}else{
+	sspline =spline ;
+	}
+	drawSpline(sspline , cvsf);
+//生成gcode
+    document.getElementById("gCodeV").value = document.getElementById("gCodeV").value + pointsToGCode(sspline);
+	//let simplifiedSpline = douglasPeucker(splineInterpolation(group),epsilon);
+	//drawSpline(simplifiedSpline , cvsd);
+//生成svg	   
+    // Create SVG path   	
+	let svgPath = pointsToSVG(sspline);
+    if(svgPath !== "") {
+        // Create path element and add it to the SVG element
+        let pathElement = document.createElementNS("http://www.w3.org/2000/svg", 'path');
+        pathElement.setAttribute("d", svgPath);
+        pathElement.setAttribute("stroke", "black");
+        pathElement.setAttribute("fill", "none");
+        svgElement.appendChild(pathElement);
+    }});
+	//createSVGImage(svgPath);
+    document.getElementById("gCodeV").value += 'G0 Z5\n';
+// Serialize SVG element
+let serializer = new XMLSerializer();
+let svgString = serializer.serializeToString(svgElement);
+
+// Create Blob object
+let blob = new Blob([svgString], {type: 'image/svg+xml;charset=utf-8'});
+let url = URL.createObjectURL(blob);
+
+// Create img element and set its src to the blob URL
+let img = document.getElementById('imgSvg');
+img.width = canvas.width;
+img.height = canvas.height;
+img.src = url;
+}
+
+
+function splineInterpolation(points) {
+    let n = points.length - 1;
+    let a = points.map(point => point[1]);
+    let b = Array(n).fill(0);
+    let d = Array(n).fill(0);
+    let h = Array(n).fill(0);
+    let alpha = Array(n).fill(0);
+    let c = Array(n + 1).fill(0);
+    let l = Array(n + 1).fill(0);
+    let mu = Array(n).fill(0);
+    let z = Array(n + 1).fill(0);
+
+    for (let i = 0; i < n; i++) {
+        h[i] = points[i + 1][0] - points[i][0];
+    }
+
+    for (let i = 1; i < n; i++) {
+        alpha[i] = (3 / h[i]) * (a[i + 1] - a[i]) - (3 / h[i - 1]) * (a[i] - a[i - 1]);
+    }
+
+    l[0] = 1;
+
+    for (let i = 1; i < n; i++) {
+        l[i] = 2 * (points[i + 1][0] - points[i - 1][0]) - h[i - 1] * mu[i - 1];
+        mu[i] = h[i] / l[i];
+        z[i] = (alpha[i] - h[i - 1] * z[i - 1]) / l[i];
+    }
+
+    l[n] = 1;
+
+    for (let j = n - 1; j >= 0; j--) {
+        c[j] = z[j] - mu[j] * c[j + 1];
+        b[j] = (a[j + 1] - a[j]) / h[j] - h[j] * (c[j + 1] + 2 * c[j]) / 3;
+        d[j] = (c[j + 1] - c[j]) / (3 * h[j]);
+    }
+
+    return points.map((point, i) => i < n ? [point[0], a[i], b[i], c[i], d[i]] : null).filter(Boolean);
+}
+
+
+function drawSpline(splineParams, canvas) {
+    let ctx = canvas.getContext('2d');
+    if (splineParams.length === 0) return; // 如果没有样条参数，直接返回	
+	ctx.beginPath();
+	try{ctx.moveTo(splineParams[0][0], splineParams[0][1]); // 移动到曲线的起点
+		}catch(e){
+		console.log(e);
+		return;
+		}
+    for (let i = 0; i < splineParams.length - 1; i++) {
+	
+        let x0 = splineParams[i][0];
+        let y0 = splineParams[i][1];
+        let x1 = splineParams[i + 1][0];
+        let y1 = splineParams[i + 1][1];
+        let cp1x = x0 + (x1 - x0) / 3;
+        let cp1y = y0 + (y1 - y0) / 3 * 2;
+        let cp2x = x0 + (x1 - x0) / 3 * 2;
+        let cp2y = y0 + (y1 - y0) / 3;
+
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x1, y1); // 绘制贝塞尔曲线段
+	//本段用来测试每段曲线	
+	/*  ctx.closePath(); 
+      ctx.stroke(); // 完成曲线
+	  if(i < splineParams.length -2){
+	    ctx.beginPath();
+	    ctx.moveTo(splineParams[i][0], splineParams[i][1]); // 移动到曲线的起点
+       }*/
+	   //本段用来测试每段曲线
+    }
+	//  ctx.closePath(); 
+      ctx.stroke(); // 完成曲线
+}
+
+
+function drawArr(arr,cvsd){
+ let ctx = cvsd.getContext('2d');
+ for(let x =0;x<cvsd.width;x++){
+ for(let y = 0;y<cvsd.height;y++){
+ ctx.fillStyle = 'rgb(' + arr[x][y].join(',') + ')';
+  ctx.fillRect(x, y, 1, 1);
+  }}
+  
+}
+function drawEdges(edges, canvas) {
+    let ctx = canvas.getContext('2d');   
+
+    for (let point of edges) {
+        let x = point[0];
+        let y = point[1];
+		let v = point[2];
+		//ctx.fillStyle = v*255; // 设置颜色
+		if(v == 1){ctx.fillStyle = "black";}
+		else{ctx.fillStyle = "white";}
+        ctx.fillRect(x, y, 1, 1); // 画一个像素大小的方块
+    }
+}
+
+
+function sobelFilter(arr) {
+    let width = arr.length;
+    let height = arr[0].length;
+    let edges = [];
+
+    // Sobel算子
+    let Gx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
+    let Gy = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
+
+    for (let x = 1; x < width - 1; x++) {
+        for (let y = 1; y < height - 1; y++) {
+            let redX = 0, greenX = 0, blueX = 0, alphaX = 0;
+            let redY = 0, greenY = 0, blueY = 0, alphaY = 0;
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    let pixel = arr[x + i][y + j];
+                    redX += pixel[0] * Gx[i + 1][j + 1];
+                    greenX += pixel[1] * Gx[i + 1][j + 1];
+                    blueX += pixel[2] * Gx[i + 1][j + 1];
+                    alphaX += pixel[3] * Gx[i + 1][j + 1];
+                    redY += pixel[0] * Gy[i + 1][j + 1];
+                    greenY += pixel[1] * Gy[i + 1][j + 1];
+                    blueY += pixel[2] * Gy[i + 1][j + 1];
+                    alphaY += pixel[3] * Gy[i + 1][j + 1];
+                }
+            }
+            let red = Math.hypot(redX, redY);
+            let green = Math.hypot(greenX, greenY);
+            let blue = Math.hypot(blueX, blueY);
+            let alpha = Math.hypot(alphaX, alphaY);
+            if (red > 255) red = 255;
+            if (green > 255) green = 255;
+            if (blue > 255) blue = 255;
+            if (alpha > 255) alpha = 255;
+			//console.log(colorDiff);
+            if (red > colorDiff || green > colorDiff || blue > colorDiff || alpha > colorDiff) { // 如果边缘强度大于某个阈值
+                edges.push([x, y, 1]); // 将这个位置添加到边缘列表
+            }else{
+		        //edges.push([x, y, 0]); // 将这个位置添加到边缘列表
+			}
+        }
+    }
+
+    return edges;
+}
+
+
+function groupEdges(edges, maxDist) {
+    let width = 0;
+    let height = 0;
+
+    for (let edge of edges) {
+        width = Math.max(width, edge[0]);
+        height = Math.max(height, edge[1]);
+    }
+
+    width += 1;
+    height += 1;
+
+    let visited = Array(width).fill(false).map(() => Array(height).fill(false));
+
+    let isEdge = Array(width).fill(false).map(() => Array(height).fill(false));
+    for (let edge of edges) {
+        if (edge[2] === 1) {
+            isEdge[edge[0]][edge[1]] = true;
+        }
+    }
+
+    let dx = [-1, 0, 1, 0, -1, -1, 1, 1];
+    let dy = [0, 1, 0, -1, -1, 1, -1, 1];
+    let groups = [];
+
+    for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) {
+            if (isEdge[x][y] && !visited[x][y]) {
+                let group = [];
+                let stack = [[x, y]];
+                
+                while (stack.length > 0) {
+                    let [cx, cy] = stack.pop();
+                    
+                    if (visited[cx][cy]) continue;
+                    
+                    visited[cx][cy] = true;
+                    group.push([cx, cy]);
+                    
+                    for (let i = 0; i < 8; i++) {
+                        let nx = cx + dx[i], ny = cy + dy[i];
+                        if (nx >= 0 && nx < width && ny >= 0 && ny < height && !visited[nx][ny] && isEdge[nx][ny]) {
+                            stack.push([nx, ny]);
+                        }
+                    }
+                }
+
+                if (group.length > 1) {
+						
+						//本段用来排序边缘点
+						let sortedGroup = [group[0]];
+						group.splice(0, 1);
+						while (group.length > 0) {
+							let lastPoint = sortedGroup[sortedGroup.length - 1];
+							let closestIndex = 0;
+							let closestDist = Infinity;
+
+							for (let i = 0; i < group.length; i++) {
+								let dist = Math.sqrt(Math.pow(lastPoint[0] - group[i][0], 2) + Math.pow(lastPoint[1] - group[i][1], 2));
+								if (dist < closestDist) {
+									closestDist = dist;
+									closestIndex = i;
+								}
+							}
+
+							sortedGroup.push(group[closestIndex]);
+							group.splice(closestIndex, 1);
+						}
+
+						group = sortedGroup;
+						//本段用来排序边缘点
+						//本段用来分割大组避免线段经过空白区域
+						let subGroup = [group[0]];
+						for (let i = 1; i < group.length; i++) {
+							let dist = Math.sqrt(Math.pow(group[i][0] - group[i - 1][0], 2) + Math.pow(group[i][1] - group[i - 1][1], 2));
+							if (dist > maxDist) {
+								groups.push(subGroup);
+								subGroup = [];
+							}
+							subGroup.push(group[i]);
+						}
+						if (subGroup.length > 0) {
+							groups.push(subGroup);
+						}
+						//本段用来分割大组避免线段经过空白区域
+					} else {//if (group.length === 1) {
+						//加入只有一个成员的边界或者其他类型的边界
+						//groups.push(group);
+					}
+            }
+        }
+    }
+
+    return groups;
+}
+
+
+function douglasPeucker(points, epsilon) {
+    let maxDist = 0;
+    let index = 0;
+
+    for (let i = 1; i < points.length - 1; i++) {
+        let dist = lineDistance(points[i], points[0], points[points.length - 1]);
+        if (dist > maxDist) {
+            maxDist = dist;
+            index = i;
+        }
+    }
+
+    if (maxDist > epsilon) {
+        let left = douglasPeucker(points.slice(0, index + 1), epsilon);
+        let right = douglasPeucker(points.slice(index), epsilon);
+        return left.slice(0, left.length - 1).concat(right);
+    } else {
+        return [points[0], points[points.length - 1]];
+    }
+}
+
+function gaussianSmooth1D(points, sigma) {
+    let smoothedPoints = [];
+
+    for(let i = 0; i < points.length; i++) {
+        let sum = 0;
+        let weightSum = 0;
+
+        for(let j = -sigma; j <= sigma; j++) {
+            let index = i + j;
+            if(index >= 0 && index < points.length) {
+                let weight = Math.exp(-(j * j) / (2 * sigma * sigma));
+                sum += weight * points[index];
+                weightSum += weight;
+            }
+        }
+
+        smoothedPoints.push(sum / weightSum);
+    }
+
+    return smoothedPoints;
+}
+
+function gaussianSmoothND(points, sigma, dimension) {
+    if(dimension === 1) {
+        return gaussianSmooth1D(points, sigma);
+    }
+    else {
+	if(Array.isArray(points)){
+        return points.map(p => gaussianSmoothND(p, sigma, dimension - 1));
+		}else{
+		return points;
+		}
+    }
+}
+
+
+
+function lineDistance(point, lineStart, lineEnd) {
+    let dx = lineEnd[0] - lineStart[0];
+    let dy = lineEnd[1] - lineStart[1];
+    let numerator = Math.abs(dy * point[0] - dx * point[1] + lineEnd[0] * lineStart[1] - lineEnd[1] * lineStart[0]);
+    let denominator = Math.sqrt(dx * dx + dy * dy);
+    return numerator / denominator;
+}
+
+
+function pointsToGCode(points) {
+	let p0 = points.shift();
+    if (p0[0] == undefined || p0[1] == undefined || points.length == 0) {
+			return "";
+		}
+	let gcode = 'G0 Z5\n'; 
+	gcode += `G0 X${p0[0]} Y${p0[1]}\n`;
+	gcode += 'G0 Z0\n'; 
+    for (let point of points) {
+       if (point[0] !== undefined && point[1] !== undefined) {
+			gcode += `G1 X${point[0]} Y${point[1]}\n`; // 直线移动到点
+		}
+
+    }
+    return gcode;
+}
+
+function pointsToSVG(points) {
+    if(points.length == 0) return "";
+    let svgPath = `M ${points[0][0]},${points[0][1]}`;
+    for(let i=1; i<points.length; i++) {
+        if(points[i][0] !== undefined && points[i][1] !== undefined) {
+            svgPath += ` L ${points[i][0]},${points[i][1]}`;
+        }
+    }
+    return svgPath;
+}
+
+
+
+  </script>
+</body>
+</html>
