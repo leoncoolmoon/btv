@@ -121,11 +121,13 @@ sigmaSlider.oninput = function() {
   sigma = parseFloat(this.value);
 }
 
+var edges;
   document.getElementById('imageUpload').addEventListener('change', function(e) {
   var canvas = document.getElementById('canvasJpg');
   var ctx = canvas.getContext('2d');
   var reader = new FileReader();
   var visited;
+  
 
   reader.onload = function(event) {
     var img = new Image();
@@ -133,21 +135,9 @@ sigmaSlider.oninput = function() {
       canvas.width = img.width;
       canvas.height = img.height;
       ctx.drawImage(img, 0, 0, img.width, img.height);
-}
-    img.src = event.target.result;
-  }
-  reader.readAsDataURL(e.target.files[0]);
-});
-
-document.getElementById("convertButton").onclick = function() {
-document.getElementById("message").style.display="flex";
-setTimeout(function() {
-  console.log(colorDiff, epsilon, maxDist, numColors);
- var canvas = document.getElementById('canvasJpg');
-  var ctx = canvas.getContext('2d');
-let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+	  let arr = new Array(canvas.width);
+	  let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 let data = imageData.data;
-let arr = new Array(canvas.width);
 for (let x = 0; x < canvas.width; x++) {
   arr[x] = new Array(canvas.height);
   for (let y = 0; y < canvas.height; y++) {
@@ -173,6 +163,26 @@ var cvsd = document.getElementById('canvasDec');
 var cvse = document.getElementById('canvasEdge');
       cvse.width = canvas.width;
       cvse.height = canvas.height;
+drawArr(arr,cvsd);
+//寻找边界
+ edges = sobelFilter(arr);
+drawEdges(edges,cvse);	  
+	  
+	  
+}
+    img.src = event.target.result;
+  }
+  reader.readAsDataURL(e.target.files[0]);
+});
+
+document.getElementById("convertButton").onclick = function() {
+document.getElementById("message").style.display="flex";
+setTimeout(function() {
+  console.log(colorDiff, epsilon, maxDist, numColors);
+ var canvas = document.getElementById('canvasJpg');
+  var ctx = canvas.getContext('2d');
+
+
 var cvsf = document.getElementById('canvasVic');
       cvsf.width = canvas.width;
       cvsf.height = canvas.height;
@@ -181,10 +191,7 @@ var cvsf = document.getElementById('canvasVic');
       cvsg.height = canvas.height;   
 */
 //核心	  
-drawArr(arr,cvsd);
-//寻找边界
-var edges = sobelFilter(arr);
-drawEdges(edges,cvse);
+
 //分组分割边界
 var groups = groupEdges(edges,maxDist);
 //准备Gcode
@@ -219,7 +226,9 @@ groups.forEach((group, index) => {
         pathElement.setAttribute("stroke", "black");
         pathElement.setAttribute("fill", "none");
         svgElement.appendChild(pathElement);
-    }});
+    }
+	
+	});
 	//createSVGImage(svgPath);
     document.getElementById("gCodeV").value += 'G0 Z5\n';
 // Serialize SVG element
@@ -342,11 +351,13 @@ function sobelFilter(arr) {
     let width = arr.length;
     let height = arr[0].length;
     let edges = [];
-
+	let darkerEdges = [];
+ var k = 0.3
     // Sobel算子
     let Gx = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
     let Gy = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
-
+  //  let Gx = [[-1,-2,0,2,1],[-2,-3,0,3,2],[-3,-5,0,5,3],[-2,-3,0,3,2],[-1,-2,0,2,1]];
+ //   let Gy = [[1,2,3,2,1],[2,3,5,3,2],[0,0,0,0,0],[-2,-3,-5,-3,-2],[-1,-2,-3,-2,-1]];
     for (let x = 1; x < width - 1; x++) {
         for (let y = 1; y < height - 1; y++) {
             let redX = 0, greenX = 0, blueX = 0, alphaX = 0;
@@ -354,14 +365,14 @@ function sobelFilter(arr) {
             for (let i = -1; i <= 1; i++) {
                 for (let j = -1; j <= 1; j++) {
                     let pixel = arr[x + i][y + j];
-                    redX += pixel[0] * Gx[i + 1][j + 1];
-                    greenX += pixel[1] * Gx[i + 1][j + 1];
-                    blueX += pixel[2] * Gx[i + 1][j + 1];
-                    alphaX += pixel[3] * Gx[i + 1][j + 1];
-                    redY += pixel[0] * Gy[i + 1][j + 1];
-                    greenY += pixel[1] * Gy[i + 1][j + 1];
-                    blueY += pixel[2] * Gy[i + 1][j + 1];
-                    alphaY += pixel[3] * Gy[i + 1][j + 1];
+                    redX += pixel[0] * Gx[i + 1][j + 1]*k;
+                    greenX += pixel[1] * Gx[i + 1][j + 1]*k;
+                    blueX += pixel[2] * Gx[i + 1][j + 1]*k;
+                    alphaX += pixel[3] * Gx[i + 1][j + 1]*k;
+                    redY += pixel[0] * Gy[i + 1][j + 1]*k;
+                    greenY += pixel[1] * Gy[i + 1][j + 1]*k;
+                    blueY += pixel[2] * Gy[i + 1][j + 1]*k;
+                    alphaY += pixel[3] * Gy[i + 1][j + 1]*k;
                 }
             }
             let red = Math.hypot(redX, redY);
@@ -374,14 +385,35 @@ function sobelFilter(arr) {
             if (alpha > 255) alpha = 255;
 			//console.log(colorDiff);
             if (red > colorDiff || green > colorDiff || blue > colorDiff || alpha > colorDiff) { // 如果边缘强度大于某个阈值
-                edges.push([x, y, 1]); // 将这个位置添加到边缘列表
+                //edges.push([x, y, 1]); // 将这个位置添加到边缘列表
+				// 获取边界点周围的颜色
+                let surroundingColors = [];
+				let colorSum = 0,colorAvg = 0;
+                for (let i = -1; i <= 1; i++) {
+                    for (let j = -1; j <= 1; j++) {
+					let r = arr[x + i][y + j][0];
+					let g = arr[x + i][y + j][1];
+					let b = arr[x + i][y + j][2];
+                        colorSum = colorSum + (r+g+b)/3;
+                        surroundingColors.push([x+i,y+j,arr[x + i][y + j]]);
+                    }
+                }
+				colorAvg = colorSum /9;//周围颜色均值
+				for( var i = 0; i<surroundingColors.length; i++){
+					let r = surroundingColors[i][2][0];
+					let g = surroundingColors[i][2][1];
+					let b =surroundingColors[i][2][2];
+					if( (r+g+b)/3<colorAvg){
+						 darkerEdges.push([surroundingColors[i][0],surroundingColors[i][1],1]);//把深于周围平均颜色的点推入返回数组
+					}
+				}
             }else{
 		        //edges.push([x, y, 0]); // 将这个位置添加到边缘列表
 			}
         }
     }
 
-    return edges;
+    return darkerEdges;//edges;
 }
 
 
@@ -406,81 +438,65 @@ function groupEdges(edges, maxDist) {
         }
     }
 
-    let dx = [-1, 0, 1, 0, -1, -1, 1, 1];
-    let dy = [0, 1, 0, -1, -1, 1, -1, 1];
-    let groups = [];
 
-    for (let x = 0; x < width; x++) {
-        for (let y = 0; y < height; y++) {
-            if (isEdge[x][y] && !visited[x][y]) {
-                let group = [];
-                let stack = [[x, y]];
-                
-                while (stack.length > 0) {
-                    let [cx, cy] = stack.pop();
-                    
-                    if (visited[cx][cy]) continue;
-                    
-                    visited[cx][cy] = true;
-                    group.push([cx, cy]);
-                    
-                    for (let i = 0; i < 8; i++) {
-                        let nx = cx + dx[i], ny = cy + dy[i];
-                        if (nx >= 0 && nx < width && ny >= 0 && ny < height && !visited[nx][ny] && isEdge[nx][ny]) {
-                            stack.push([nx, ny]);
-                        }
-                    }
-                }
-
-                if (group.length > 1) {
-						
-						//本段用来排序边缘点
-						let sortedGroup = [group[0]];
-						group.splice(0, 1);
-						while (group.length > 0) {
-							let lastPoint = sortedGroup[sortedGroup.length - 1];
-							let closestIndex = 0;
-							let closestDist = Infinity;
-
-							for (let i = 0; i < group.length; i++) {
-								let dist = Math.sqrt(Math.pow(lastPoint[0] - group[i][0], 2) + Math.pow(lastPoint[1] - group[i][1], 2));
-								if (dist < closestDist) {
-									closestDist = dist;
-									closestIndex = i;
-								}
-							}
-
-							sortedGroup.push(group[closestIndex]);
-							group.splice(closestIndex, 1);
-						}
-
-						group = sortedGroup;
-						//本段用来排序边缘点
-						//本段用来分割大组避免线段经过空白区域
-						let subGroup = [group[0]];
-						for (let i = 1; i < group.length; i++) {
-							let dist = Math.sqrt(Math.pow(group[i][0] - group[i - 1][0], 2) + Math.pow(group[i][1] - group[i - 1][1], 2));
-							if (dist > maxDist) {
-								groups.push(subGroup);
-								subGroup = [];
-							}
-							subGroup.push(group[i]);
-						}
-						if (subGroup.length > 0) {
-							groups.push(subGroup);
-						}
-						//本段用来分割大组避免线段经过空白区域
-					} else {//if (group.length === 1) {
-						//加入只有一个成员的边界或者其他类型的边界
-						//groups.push(group);
-					}
-            }
-        }
-    }
+    let groups = scan(0,height,0,width,isEdge,visited,maxDist);
 
     return groups;
 }
 
+function scan(a,b,c,d,isEdge,visited,maxDist){
+let dx = [-1, 0, 1, 0, -1, -1, 1, 1];
+let dy = [0, 1, 0, -1, -1, 1, -1, 1];
+let groups = [];
+    for (let y = a; y < b; y++)  {
+		for (let x = c; x < d; x++) {
+            if (isEdge[x][y] && !visited[x][y]) {
+                let group = [];
+                let stack = [[x, y]];
+                //var groupYmin = Infinity, groupYmax = -Infinity;
+				//var groupXmin = Infinity, groupXmax = -Infinity;
+				let prev = [x,y];
+                while (stack.length > 0) {
+                    let [cx, cy] = stack.pop();
+                    if (visited[cx][cy]) continue;					
+                    //groupYmin = Math.min(groupYmin,cy);
+					//groupYmax = Math.max(groupYmax,cy);
+					//groupXmin = Math.min(groupXmin,cx);
+					//groupXmax = Math.max(groupXmax,cx);
+                    visited[cx][cy] = true;
+					//如果这个点太远就忽略
+					let sq_dist = (cx-prev[0])**2+(cy-prev[1])**2;
+					if(sq_dist > maxDist**2) continue;
+                    prev = [cx,cy];
+					group.push([cx, cy]);
+                    
+                    for (let i = 0; i < 8; i++) {
+                        let nx = cx + dx[i], ny = cy + dy[i];
+                        if (nx >= 0 && nx < d && ny >= 0 && ny < b && !visited[nx][ny] && isEdge[nx][ny]) {
+                            stack.push([nx, ny]);
+                        }
+                    }
+					
+                }
+				//if( groupXmax - groupXmin >3 &&  groupYmax - groupYmin >3){
+					//let tempGgroups = scan(groupXmin,groupXmax,groupYmin,groupYmax,isEdge,visited);
+					//for(let tmpGroup of tempGgroups){
+							//group.push(...tmpGroup);
+						//}
+						//groups.push(...tempGgroups);
+				//}
+				
+				
+				 if (group.length > 1) {
+				 groups.push(group);
+				 }
+				 
+					
+            }
+        }
+		}
+return groups;
+}
 
 function douglasPeucker(points, epsilon) {
     let maxDist = 0;
